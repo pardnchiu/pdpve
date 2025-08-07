@@ -1,0 +1,341 @@
+#!/bin/sh
+
+VMID=""
+NAME=""
+CPU=""
+DISK=""
+RAM=""
+STORAGE=""
+OS=""
+VERSION=""
+IP=""
+GW=""
+USER=""
+PASSWD=""
+
+OPTIONS=$(getopt -o i:s:o:v:n:c:d:r: -l id:,storage:,os:,version:,name:,cpu:,disk:,ram: -- "$@")
+if [ $? != 0 ] ; then echo "參數解析錯誤" >&2 ; exit 1 ; fi
+eval set -- "$OPTIONS"
+
+while true; do
+  case "$1" in
+    -i|--id)
+      VMID="$2"; shift 2 ;;
+    -s|--storage)
+      STORAGE="$2"; shift 2 ;;
+    -o|--os)
+      OS="$2"; shift 2 ;;
+    -v|--version)
+      VERSION="$2"; shift 2 ;;
+    -n|--name)
+      NAME="$2"; shift 2 ;;
+    -c|--cpu)
+      CPU="$2"; shift 2 ;;
+    -d|--disk)
+      DISK="$2"; shift 2 ;;
+    -r|--ram)
+      RAM="$2"; shift 2 ;;
+    -h|--help)
+      HELP="true"; shift ;;
+    --)
+      shift; break ;;
+    *)
+      break ;;
+  esac
+done
+
+if [ "$HELP" = "true" ]; then
+	printf "___________________________________________\n\n"
+  printf "  -i,  --id       設定虛擬機 ID\n"
+  printf "  -s,  --storage  設定存儲區 ID\n"
+  printf "  -o,  --os       設定作業系統 [debian/ubuntu/rockylinux]\n"
+  printf "  -v,  --version  設定系統版本\n"
+  printf "  -n,  --name     設定名稱 [預設 qemu]\n"
+  printf "  -c,  --cpu      設定 vCPU [預設 2]\n"
+  printf "  -d,  --disk     設定硬碟 [最低 8G]\n"
+	printf "  -r,  --ram      設定記憶體 [預設 2048]\n"
+	printf "___________________________________________\n\n"
+  exit 0
+fi
+
+# 檢查虛擬機 ID
+while true; do
+  if [ "$VMID" = "" ]; then
+    read -p "[-] 請輸入虛擬機 ID: " VMID
+  fi
+  
+  if /usr/sbin/qm config $VMID >/dev/null 2>&1; then
+    echo "[!] 虛擬機 ID $VMID 已存在，請重新輸入"
+    VMID=""
+    continue
+  else
+    break
+  fi
+done
+
+# 檢查存儲區 ID
+while true; do
+  if [ "$STORAGE" = "" ]; then
+    read -p "[-] 請輸入存儲區 ID: " STORAGE
+  fi
+
+  if ! /usr/sbin/pvesm status -storage $STORAGE >/dev/null 2>&1; then
+    echo "[!] 儲存池 $STORAGE 不存在"
+    STORAGE=""
+    continue
+  else
+    break
+  fi
+done
+
+# 檢查作業系統
+while true; do
+  if [ "$OS" = "" ]; then
+    printf "[*] 請選擇作業系統\n"
+    printf "  1) Debian\n"
+    printf "  2) RockyLinux\n" 
+    printf "  3) Ubuntu\n"
+    read -p "[-] 請輸入選項 (1-3): " OS_CHOICE
+    
+    case "$OS_CHOICE" in
+      1)
+        OS="debian" ; break ;;
+      2)
+        OS="rockylinux" ; break ;;
+      3)
+        OS="ubuntu" ; break ;;
+      *)
+        echo "[!] 不支援的作業系統類型"
+        OS=""
+        continue ;;
+    esac
+  fi
+done
+
+# 檢查版本號
+while true; do
+  if [ "$VERSION" = "" ]; then
+    case "$OS" in
+      debian)
+        read -p "[-] 請輸入版本號 (例 11/12): " VERSION ;;
+      rockylinux)
+        read -p "[-] 請輸入版本號 (例 8/9): " VERSION ;;
+      ubuntu)
+        read -p "[-] 請輸入版本號 (例 24.04/24.10): " VERSION ;;
+    esac
+  fi
+  
+  # 根據作業系統設定 URL
+  case "$OS" in
+    debian)
+      VERSION_NAME=""
+      if [ "$VERSION" = 10 ]; then
+        VERSION_NAME="buster"
+      elif [ "$VERSION" = 11 ]; then
+        VERSION_NAME="bullseye"
+      elif [ "$VERSION" = 12 ]; then
+        VERSION_NAME="bookworm"
+      else
+        echo "[!] 不支援的 Debian 版本號"
+        VERSION=""
+        continue
+      fi
+      IMAGE_URL="https://cloud.debian.org/images/cloud/${VERSION_NAME}/latest/debian-${VERSION}-generic-amd64.qcow2"
+      IMAGE_FILE="/tmp/debian-${VERSION}-generic-amd64.qcow2" ;;
+    rockylinux)
+      IMAGE_URL="https://dl.rockylinux.org/pub/rocky/${VERSION}/images/x86_64/Rocky-${VERSION}-GenericCloud-Base.latest.x86_64.qcow2"
+      IMAGE_FILE="/tmp/Rocky-${VERSION}-GenericCloud-Base.latest.x86_64.qcow2" ;;
+    ubuntu)
+      IMAGE_URL="https://mirror.twds.com.tw/ubuntu-cloud-images/releases/${VERSION}/release/ubuntu-${VERSION}-server-cloudimg-amd64.img"
+      IMAGE_FILE="/tmp/ubuntu-${VERSION}-server-cloudimg-amd64.img" ;;
+  esac
+  
+  # 檢查 URL 是否存在
+  if curl --head --silent --fail "$IMAGE_URL" >/dev/null 2>&1; then
+    break
+  else
+    echo "[!] 版本 $VERSION 不存在，請重新輸入"
+    VERSION=""
+    continue
+  fi
+done
+
+# 下載映像檔
+if [ ! -f "$IMAGE_FILE" ]; then
+  read -p "[!] 映像檔不存在，是否要下載 ${OS} ${VERSION} 映像檔？ (y/N): " DOWNLOAD
+  if [ "$DOWNLOAD" != "y" ] && [ "$DOWNLOAD" != "Y" ]; then
+    echo "[!] 取消下載，動作停止"
+    exit 1
+  fi
+  
+  echo "[*] 下載 ${OS} ${VERSION} 映像檔"
+  curl -L -o "$IMAGE_FILE" "$IMAGE_URL"
+  if [ $? -ne 0 ]; then
+    echo "[!] 下載失敗"
+    exit 1
+  fi
+fi
+
+# 檢查名稱
+if [ "$NAME" = "" ]; then
+  read -p "[-] 請輸入虛擬機名稱 [預設: qemu]: " NAME
+  NAME=${NAME:-"qemu"}
+fi
+
+# 檢查 vCPU
+if [ "$CPU" = "" ]; then
+  read -p "[-] 請輸入虛擬機 vCPU 數量 [預設: 2]: " CPU
+  CPU=${CPU:-2}
+fi
+
+# 檢查硬碟大小
+if [ "$OS" = "rockylinux" ]; then
+  if [ "$DISK" = "" ]; then
+    read -p "[-] 請輸入虛擬機磁碟大小 [最低: 16G]: " DISK
+    DISK=${DISK:-16G}
+  fi
+else
+  if [ "$DISK" = "" ]; then
+    read -p "[-] 請輸入虛擬機磁碟大小 [最低: 8G]: " DISK
+    DISK=${DISK:-8G}
+  fi
+fi
+
+DISK_SIZE=$(echo "$DISK" | sed 's/[^0-9]//g')
+if [ "$OS" = "rockylinux" ]; then
+  if [ "$DISK_SIZE" -lt 16 ]; then
+    echo "[*] RockyLinux 映像檔高於 10G，自動調整為 16G"
+    DISK="16G"
+  fi
+else
+  if [ "$DISK_SIZE" -lt 8 ]; then
+    echo "[*] 自動調整為 8G"
+    DISK="8G"
+  fi
+fi
+
+# 檢查記憶體
+if [ "$RAM" = "" ]; then
+  read -p "[-] 請輸入虛擬機 RAM 大小 [預設: 2048]: " RAM
+  RAM=${RAM:-2048}
+fi
+
+# 檢查 IP 和 Gateway
+while true; do
+  if [ "$IP" = "" ]; then
+    read -p "[-] 請輸入 IP 設定 [預設: dhcp]: " IP
+    IP=${IP:-"dhcp"}
+  fi
+  
+  if [ "$IP" = "dhcp" ]; then
+    break
+  fi
+  
+  if ! echo "$IP" | grep -qE '^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+/[0-9]+$'; then
+    echo "[!] IP 格式錯誤，請輸入包含遮罩的 IP 地址 (例如: 192.168.1.100/24)"
+    IP=""
+  else
+    break
+  fi
+done
+
+if [ "$IP" != "dhcp" ]; then
+  while true; do
+    if [ "$GW" = "" ]; then
+      read -p "[-] 請輸入 Gateway 設定: " GW
+    fi
+    
+    if [ -n "$GW" ]; then
+      break
+    else
+      echo "[!] Gateway 不能為空"
+    fi
+  done
+fi
+
+# 檢查使用者名稱和密碼
+if [ "$USER" = "" ]; then
+  read -p "[-] 請輸入虛擬機使用者名稱 [預設: DEFAULT]: " USER
+fi
+
+if [ "$PASSWD" = "" ]; then
+  read -p "[-] 請輸入虛擬機使用者密碼 [預設: passwd]: " PASSWD
+  PASSWD=${PASSWD:-passwd}
+fi
+
+cleanup_vm() {
+  if [ -n "$VMID" ] && /usr/sbin/qm config $VMID >/dev/null 2>&1; then
+    echo "[!] 清理失敗的虛擬機 $VMID"
+    /usr/sbin/qm destroy $VMID --purge >/dev/null 2>&1
+  fi
+}
+
+# 建立虛擬機
+echo "[*] 建立虛擬機 $VMID"
+/usr/sbin/qm create $VMID \
+--name $NAME \
+--cores $CPU \
+--cpu x86-64-v2-AES \
+--scsihw virtio-scsi-pci \
+--memory $RAM \
+--ostype l26 \
+--agent 1 \
+--net0 virtio,bridge=vmbr0
+
+if [ $? -ne 0 ]; then
+  echo "[!] 虛擬機 $VMID 建立失敗"
+  exit 1
+fi
+
+echo "[*] 匯入磁碟映像檔"
+/usr/sbin/qm importdisk $VMID \
+"$IMAGE_FILE" \
+$STORAGE
+
+if [ $? -ne 0 ]; then
+  echo "[!] 磁碟匯入失敗"
+  cleanup_vm
+  exit 1
+fi
+
+# 檢查並生成 SSH 金鑰
+SSH_KEY_PATH="$HOME/.ssh/id_rsa"
+SSH_PUB_KEY_PATH="$HOME/.ssh/id_rsa.pub"
+
+if [ ! -f "$SSH_PUB_KEY_PATH" ]; then
+  echo "[*] SSH 公鑰不存在，生成新的 SSH"
+  mkdir -p "$HOME/.ssh"
+  ssh-keygen -t rsa -b 4096 -f "$SSH_KEY_PATH" -N "" -C "$(whoami)@$(hostname)"
+  if [ $? -eq 0 ]; then
+    echo "[*] SSH 金鑰對生成完成"
+  else
+    echo "[!] SSH 金鑰生成失敗"
+    cleanup_vm
+    exit 1
+  fi
+fi
+
+echo "[*] 讀取 SSH 公鑰"
+SSH_PUB_KEY=$(cat "$SSH_PUB_KEY_PATH")
+
+/usr/sbin/qm set $VMID --ciuser "$USER"
+/usr/sbin/qm set $VMID --cipassword "$PASSWD"
+/usr/sbin/qm set $VMID --sshkeys "$SSH_PUB_KEY_PATH"
+/usr/sbin/qm set $VMID --scsi0 "$STORAGE:vm-$VMID-disk-0"
+/usr/sbin/qm set $VMID --ide2 "$STORAGE:cloudinit"
+/usr/sbin/qm set $VMID --boot c --bootdisk scsi0
+
+echo "[*] 調整硬碟大小到 $DISK"
+/usr/sbin/qm resize $VMID scsi0 $DISK
+
+if [ $? -ne 0 ]; then
+  echo "[!] 硬碟調整失敗"
+  cleanup_vm
+  exit 1
+fi
+
+if [ "$IP" = "dhcp" ]; then
+  /usr/sbin/qm set $VMID --ipconfig0 ip=dhcp
+else
+  /usr/sbin/qm set $VMID --ipconfig0 ip=$IP,gw=$GW
+fi

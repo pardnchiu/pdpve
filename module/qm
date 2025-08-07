@@ -1,0 +1,169 @@
+#!/bin/bash
+
+programName="pdpve"
+appPath=/usr/local/sbin/$programName
+appModulePath=/usr/local/bin/$programName
+path=/etc/pve/qemu-server
+
+function _SHOW_TIP {
+	printf "___________________________________________\n\n"
+	printf "  i,  install   安裝虛擬機\n"
+	printf "  l,  list      虛擬機清單\n"
+  printf "  e,  edit      編輯設定檔\n"
+  printf "  o,  start     啟動\n"
+  printf "  d,  shutdown  關機\n"
+  printf "  r,  reboot    重啟\n"
+  printf "  s,  stop      停止\n"
+  printf "  rm, remove    移除\n"
+  printf "  ssh           SSH 連接\n"
+	printf "  h,  help      指令\n"
+  printf "  bye           退出\n"
+	printf "___________________________________________\n\n"
+}
+
+function _CALL_MODULE() {
+  local NAME="$1"
+  
+  # 檢查模組是否存在
+  if [ -f "./module/${NAME}" ]; then
+    bash "./module/${NAME}" "${@:2}"
+  elif [ -f "$appModulePath/module/${NAME}" ]; then
+    bash "$appModulePath/module/${NAME}" "${@:2}"
+  else
+    printf "[!] 找不到模組: %s\n" "$NAME"
+  fi
+}
+
+function _SHOW_LIST() {
+  printf "[*] 虛擬機清單:\n"
+  for vm_file in $path/*.conf; do
+    VMID=$(basename $vm_file .conf)
+    STATUS=$(qm status $VMID)
+    printf "  $VMID $STATUS\n"
+  done
+}
+
+function _SET_STATE() {
+  local ACTION="$1"
+  _SHOW_LIST
+  case $ACTION in
+  "start")
+    read -p "[-] 要啟動的 VMID? " -r
+    printf "[*] 啟動 $REPLY\n"
+    qm start $REPLY
+    ;;
+  "shutdown") 
+    read -p "[-] 要關閉的 VMID? " -r
+    printf "[*] 關閉 $REPLY\n"
+    qm shutdown $REPLY
+    ;;
+  "reboot")
+    read -p "[-] 要重啟的 VMID? " -r
+    printf "[*] 重啟 $REPLY\n"
+    qm shutdown $REPLY && qm start $REPLY
+    ;;
+  "stop")
+    read -p "[-] 要停止的 VMID? " -r
+    printf "[*] 停止 $REPLY\n"
+    qm stop $REPLY
+    ;;
+  "remove")
+    read -p "[-] 要移除的 VMID? " -r
+    VMID=$REPLY
+    read -p "[!] 確定要移除虛擬機 $VMID? [y/N] " -n 1 -r
+    printf "\n"
+    if [[ $REPLY =~ ^[Yy]$ ]]; then
+      printf "[*] 移除虛擬機 $VMID\n"
+      qm destroy $VMID --purge
+    else
+      printf "[*] 取消移除\n"
+    fi
+    ;;
+  *)
+    printf "[!] 無效的動作: %s\n" "$ACTION"
+    ;;
+  esac
+}
+
+function _DO() {
+  while true; do
+    read -p "[-] 請選擇 qm 動作? " -r
+    case $REPLY in
+    "i"|"install")
+      _CALL_MODULE "qm-install" "${@:2}" ;;
+    "l"|"list")
+      _SHOW_LIST ;;
+    "e"|"edit")
+      _SHOW_LIST
+      read -p "[-] 要編輯的 VMID? " -r
+      nano $path/$REPLY.conf ;;
+    "o"|"start")
+      # read -p "[-] 啟動全部虛擬機? [y/N] " -n 1 -r
+      # printf "\n"
+      # if [[ $REPLY =~ ^[Yy]$ ]]; then
+      #   for vm_file in $path/*.conf; do
+      #     VMID=$(basename $vm_file .conf)
+      #     printf "[*] 啟動 $VMID\n"
+      #     qm start $VMID
+      #   done
+      # else
+        _SET_STATE start
+      # fi 
+      ;;
+    "d"|"shutdown")
+      # read -p "[-] 關閉全部虛擬機? [y/N] " -n 1 -r
+      # printf "\n"
+      # if [[ $REPLY =~ ^[Yy]$ ]]; then
+      #   for vm_file in $path/*.conf; do
+      #     VMID=$(basename $vm_file .conf)
+      #     printf "[*] 關閉 $VMID\n"
+      #     qm shutdown $VMID
+      #   done
+      # else
+        _SET_STATE shutdown
+      # fi 
+      ;;
+    "r"|"reboot")
+      _SET_STATE reboot ;;
+    "s"|"stop")
+      _SET_STATE stop ;;
+    "rm"|"remove")
+      _SET_STATE remove ;;
+    "ssh")
+      read -p "[-] 虛擬機 ID? " -r
+      vmid=$REPLY
+
+      ciuser=$(qm config $vmid | grep "^ciuser:" | cut -d' ' -f2)
+      if [ -z "$ciuser" ]; then
+        printf "[!] 無法取得使用者名稱，停止執行\n"
+        return
+      fi
+
+      BRIDGE_IP=$(ip route | grep vmbr0 | grep -E 'scope link' | awk '{print $1}' | head -n1)
+
+      if [ -z "$BRIDGE_IP" ]; then
+        printf "[!] 無法取得 vmbr0 網段資訊\n"
+      else
+        # 計算 IP 位址
+        NETWORK_PREFIX=$(echo $BRIDGE_IP | cut -d'/' -f1 | cut -d'.' -f1-3)
+        calculated_ip="${NETWORK_PREFIX}.${vmid}"
+        
+        printf "[*] 連接到 $calculated_ip (使用者: $ciuser)...\n"
+        ssh $ciuser@$calculated_ip
+      fi
+      ;;
+    "h"|"help")
+      _SHOW_TIP
+      ;;
+    "bye")
+      exit 1 ;;
+    *)
+      ;;
+    esac
+		shift
+  done
+  exit 1
+}
+
+_SHOW_TIP
+_DO

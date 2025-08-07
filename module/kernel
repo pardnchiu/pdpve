@@ -1,0 +1,164 @@
+#!/bin/bash
+
+current_kernel=$(uname -r)
+current_version=${current_kernel%-pve}
+
+function _SHOW_TIP {
+  printf "█▀▄ █▀▄ █▀▄ █ █ █▀▀\n"
+  printf "█▀  █ █ █▀  █ █ █▀▀\n"
+  printf "▀   ▀▀  ▀    ▀  ▀▀▀\n"
+  printf "By 邱敬幃 Pardn Chiu [dev@pardn.io]\n"
+	printf "___________________________________________\n\n"
+	printf "[*] PVE 核心\n"
+	printf "[*] 當前核心: $current_kernel\n"
+	printf "___________________________________________\n\n"
+	printf "  l,  list      全部核心\n"
+	printf "  c,  clean     清理舊核心\n"
+	printf "  bye           停止動作\n"
+	printf "___________________________________________\n\n"
+}
+
+function _GET_INSTALLED {
+	printf "[*] 已安裝的核心套件:\n"
+	printf "___________________________________________\n\n"
+	dpkg --list | grep -E "(pve-kernel|proxmox-kernel)-[0-9]" | while read line; do
+		status=$(echo "$line" | awk '{print $1}')
+		package=$(echo "$line" | awk '{print $2}')
+		
+		if [[ "$package" == *"$current_version"* ]]; then
+			printf "  $package [當前]\n"
+		elif [[ "$status" == "ii" ]]; then
+			printf "  $package\n"
+		elif [[ "$status" == "rc" ]]; then
+			printf "  $package [可清理]\n"
+		else
+			printf "  $package ($status)\n"
+		fi
+	done
+	printf "___________________________________________\n\n"
+}
+
+function _GET_RC {
+	rc_kernels=$(dpkg --list | grep "^rc" | grep -E "(pve-kernel|proxmox-kernel)-[0-9]" | awk '{print $2}')
+	if [ -n "$rc_kernels" ]; then
+	  printf "[*] rc 狀態的核心套件:\n"
+	  printf "___________________________________________\n\n"
+		for kernel in $rc_kernels; do
+			if [[ "$kernel" != *"$current_version"* ]]; then
+				printf "  $kernel [配置文件殘留]\n"
+			fi
+		done
+	  printf "___________________________________________\n\n"
+	fi
+}
+
+function _GET_LIST {
+  clear
+	printf "[*] 當前運行: $current_kernel\n"
+  _GET_INSTALLED
+  _GET_RC
+	printf "[*] 目錄中的檔案:\n"
+  printf "___________________________________________\n\n"
+	ls -la /boot/vmlinuz-* 2>/dev/null | awk '{printf "  %s %s\n", $9, $5}' || printf "  無核心檔案\n"
+	printf "___________________________________________\n\n"
+}
+
+function _CLEAN {
+  clear
+	printf "[*] 當前運行: $current_kernel\n"
+
+	# 獲取當前核心的版本號（移除 -pve 後綴）
+	current_version=${current_kernel%-pve}
+
+	printf "[*] 正在檢查可清理的核心套件\n"
+
+	rc_kernels=$(dpkg --list | grep "^rc" | grep -E "(pve-kernel|proxmox-kernel)-[0-9]" | awk '{print $2}')
+	
+	if [ -z "$rc_kernels" ]; then
+		printf "[*] 無可清理的套件\n\n"
+    return
+	fi
+
+  printf "[*] rc 狀態的核心套件:\n"
+  printf "___________________________________________\n\n"
+  for kernel in $rc_kernels; do
+    printf "  $kernel (配置文件殘留)\n"
+  done
+  printf "___________________________________________\n\n"
+
+  # 額外安全檢查：確保不會影響當前核心
+  safe_kernels=""
+  for kernel in $rc_kernels; do
+    if [[ "$kernel" != *"$current_version"* ]]; then
+      safe_kernels="$safe_kernels $kernel"
+    fi
+  done
+  
+  if [ -z "$safe_kernels" ]; then
+    printf "[*] 沒有安全可清理的核心套件\n"
+    printf "___________________________________________\n\n"
+    return
+  fi
+  
+  printf "[-] 確定要清理這些配置文件殘留嗎? [y/N]: "
+  read -r response
+  
+  if [[ "$response" =~ ^[Yy]$ ]]; then
+    printf "[*] 開始清理核心配置文件\n"
+    for kernel in $safe_kernels; do
+      printf "[*] 正在清理: $kernel..."
+      # 使用 dpkg --purge 清理配置文件殘留
+      dpkg --purge "$kernel" > /dev/null 2>&1
+      if [ $? -eq 0 ]; then
+        printf " ✓ 完成\n"
+      else
+        printf " ✗ 失敗\n"
+      fi
+    done
+    printf "[*] 核心配置文件清理完成\n"
+  else
+    printf "[*] 取消清理操作\n"
+  fi
+}
+
+function _DO {
+	while true; do
+		_SHOW_TIP
+		read -p "[-] 請選擇動作: " -r
+		case "$REPLY" in
+			"l"|"list")
+				_GET_LIST
+				;;
+			"c"|"clean")
+				_CLEAN
+				;;
+			"bye")
+				exit 0
+				;;
+			*)
+        clear
+        if [ -z "$REPLY" ]; then
+          printf "請輸入選項\n\n"
+        else
+          printf "無效的選項: $REPLY\n\n"
+        fi
+				;;
+		esac
+		printf "按 Enter 繼續..."
+		read -r
+		clear
+	done
+}
+
+function _INIT {
+  clear
+
+	if [[ $EUID -ne 0 ]]; then
+		printf "[!] 無 root 權限.\n"
+		exit 1
+	fi
+
+  _DO
+}
+
+_INIT

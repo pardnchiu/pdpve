@@ -5,8 +5,19 @@ appPath=/usr/local/sbin/$programName
 appModulePath=/usr/local/bin/$programName
 path=/etc/pve/qemu-server
 
-function _SHOW_TIP {
+function _SHOW_HEADER {
+  clear
+  printf "█▀▄ █▀▄ █▀▄ █ █ █▀▀\n"
+  printf "█▀  █ █ █▀  █ █ █▀▀\n"
+  printf "▀   ▀▀  ▀    ▀  ▀▀▀\n"
+  printf "By 邱敬幃 Pardn Chiu [dev@pardn.io]\n"
 	printf "___________________________________________\n\n"
+	printf "[*] 虛擬機\n"
+	printf "___________________________________________\n\n"
+}
+
+function _SHOW_TIP {
+  _SHOW_HEADER
 	printf "  i,  install   安裝虛擬機\n"
 	printf "  l,  list      虛擬機清單\n"
   printf "  e,  edit      編輯設定檔\n"
@@ -16,8 +27,7 @@ function _SHOW_TIP {
   printf "  s,  stop      停止\n"
   printf "  rm, remove    移除\n"
   printf "  ssh           SSH 連接\n"
-	printf "  h,  help      指令\n"
-  printf "  bye           退出\n"
+	printf "  b,  bye       停止動作\n"
 	printf "___________________________________________\n\n"
 }
 
@@ -35,12 +45,15 @@ function _CALL_MODULE() {
 }
 
 function _SHOW_LIST() {
+  _SHOW_HEADER
   printf "[*] 虛擬機清單:\n"
+	printf "___________________________________________\n\n"
   for vm_file in $path/*.conf; do
     VMID=$(basename $vm_file .conf)
     STATUS=$(qm status $VMID)
     printf "  $VMID $STATUS\n"
   done
+	printf "___________________________________________\n\n"
 }
 
 function _SET_STATE() {
@@ -87,16 +100,19 @@ function _SET_STATE() {
 
 function _DO() {
   while true; do
-    read -p "[-] 請選擇 qm 動作? " -r
+		_SHOW_TIP
+		read -p "[-] 請選擇動作: " -r
     case $REPLY in
     "i"|"install")
       _CALL_MODULE "qm-install" "${@:2}" ;;
     "l"|"list")
-      _SHOW_LIST ;;
+      _SHOW_LIST 
+      ;;
     "e"|"edit")
       _SHOW_LIST
       read -p "[-] 要編輯的 VMID? " -r
-      nano $path/$REPLY.conf ;;
+      nano $path/$REPLY.conf 
+      ;;
     "o"|"start")
       # read -p "[-] 啟動全部虛擬機? [y/N] " -n 1 -r
       # printf "\n"
@@ -152,17 +168,15 @@ function _DO() {
         ssh $ciuser@$calculated_ip
       fi
       ;;
-    "h"|"help")
-      _SHOW_TIP
-      ;;
-    "bye")
+    "b"|"bye")
       exit 1 ;;
     *)
       ;;
     esac
-		shift
+		printf "按 Enter 繼續..."
+		read -r
+		clear
   done
-  exit 1
 }
 
 _SHOW_TIP

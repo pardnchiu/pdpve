@@ -17,6 +17,17 @@ OPTIONS=$(getopt -o i:s:o:v:n:c:d:r: -l id:,storage:,os:,version:,name:,cpu:,dis
 if [ $? != 0 ] ; then echo "參數解析錯誤" >&2 ; exit 1 ; fi
 eval set -- "$OPTIONS"
 
+function _SHOW_HEADER {
+  clear
+  printf "█▀▄ █▀▄ █▀▄ █ █ █▀▀\n"
+  printf "█▀  █ █ █▀  █ █ █▀▀\n"
+  printf "▀   ▀▀  ▀    ▀  ▀▀▀\n"
+  printf "By 邱敬幃 Pardn Chiu [dev@pardn.io]\n"
+	printf "___________________________________________\n\n"
+	printf "[*] 安裝虛擬機\n"
+	printf "___________________________________________\n\n"
+}
+
 while true; do
   case "$1" in
     -i|--id)
@@ -60,6 +71,7 @@ fi
 
 # 檢查虛擬機 ID
 while true; do
+  _SHOW_HEADER
   if [ "$VMID" = "" ]; then
     read -p "[-] 請輸入虛擬機 ID: " VMID
   fi
@@ -91,7 +103,7 @@ done
 # 檢查作業系統
 while true; do
   if [ "$OS" = "" ]; then
-    printf "[*] 請選擇作業系統\n"
+    printf "[-] 請選擇作業系統\n"
     printf "  1) Debian\n"
     printf "  2) RockyLinux\n" 
     printf "  3) Ubuntu\n"
@@ -110,6 +122,7 @@ while true; do
         continue ;;
     esac
   fi
+  break
 done
 
 # 檢查版本號
@@ -162,18 +175,20 @@ done
 
 # 下載映像檔
 if [ ! -f "$IMAGE_FILE" ]; then
-  read -p "[!] 映像檔不存在，是否要下載 ${OS} ${VERSION} 映像檔？ (y/N): " DOWNLOAD
+  read -p "[!] 映像檔不存在，是否要下載 ${OS} ${VERSION} 映像檔 (y/N): " DOWNLOAD
   if [ "$DOWNLOAD" != "y" ] && [ "$DOWNLOAD" != "Y" ]; then
     echo "[!] 取消下載，動作停止"
     exit 1
   fi
   
   echo "[*] 下載 ${OS} ${VERSION} 映像檔"
+	printf "___________________________________________\n\n"
   curl -L -o "$IMAGE_FILE" "$IMAGE_URL"
   if [ $? -ne 0 ]; then
     echo "[!] 下載失敗"
     exit 1
   fi
+	printf "___________________________________________\n\n"
 fi
 
 # 檢查名稱
@@ -232,7 +247,7 @@ while true; do
   fi
   
   if ! echo "$IP" | grep -qE '^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+/[0-9]+$'; then
-    echo "[!] IP 格式錯誤，請輸入包含遮罩的 IP 地址 (例如: 192.168.1.100/24)"
+    echo "[!] IP 格式錯誤，請輸入包含遮罩的 IP 地址 \(例如: 192.168.1.100/24\)"
     IP=""
   else
     break
@@ -255,7 +270,17 @@ fi
 
 # 檢查使用者名稱和密碼
 if [ "$USER" = "" ]; then
-  read -p "[-] 請輸入虛擬機使用者名稱 [預設: DEFAULT]: " USER
+  case "$OS" in
+    debian)
+      read -p "[-] 請輸入虛擬機使用者名稱 [預設: debian]: " USER
+      ;;
+    rockylinux)
+      read -p "[-] 請輸入虛擬機使用者名稱 [預設: rocky]: " USER
+      ;;
+    ubuntu)
+      read -p "[-] 請輸入虛擬機使用者名稱 [預設: ubuntu]: " USER
+      ;;
+  esac
 fi
 
 if [ "$PASSWD" = "" ]; then
@@ -288,6 +313,7 @@ if [ $? -ne 0 ]; then
 fi
 
 echo "[*] 匯入磁碟映像檔"
+printf "___________________________________________\n\n"
 /usr/sbin/qm importdisk $VMID \
 "$IMAGE_FILE" \
 $STORAGE
@@ -297,6 +323,7 @@ if [ $? -ne 0 ]; then
   cleanup_vm
   exit 1
 fi
+printf "___________________________________________\n\n"
 
 # 檢查並生成 SSH 金鑰
 SSH_KEY_PATH="$HOME/.ssh/id_rsa"
@@ -317,13 +344,18 @@ fi
 
 echo "[*] 讀取 SSH 公鑰"
 SSH_PUB_KEY=$(cat "$SSH_PUB_KEY_PATH")
-
-/usr/sbin/qm set $VMID --ciuser "$USER"
-/usr/sbin/qm set $VMID --cipassword "$PASSWD"
+printf "___________________________________________\n\n"
+if [ -n "$USER" ]; then
+  /usr/sbin/qm set $VMID --ciuser "$USER"
+fi
+if [ -n "$PASSWD" ]; then
+  /usr/sbin/qm set $VMID --cipassword "$PASSWD"
+fi
 /usr/sbin/qm set $VMID --sshkeys "$SSH_PUB_KEY_PATH"
 /usr/sbin/qm set $VMID --scsi0 "$STORAGE:vm-$VMID-disk-0"
 /usr/sbin/qm set $VMID --ide2 "$STORAGE:cloudinit"
 /usr/sbin/qm set $VMID --boot c --bootdisk scsi0
+printf "___________________________________________\n\n"
 
 echo "[*] 調整硬碟大小到 $DISK"
 /usr/sbin/qm resize $VMID scsi0 $DISK
@@ -334,8 +366,11 @@ if [ $? -ne 0 ]; then
   exit 1
 fi
 
+echo "[*] 設定網路"
+printf "___________________________________________\n\n"
 if [ "$IP" = "dhcp" ]; then
   /usr/sbin/qm set $VMID --ipconfig0 ip=dhcp
 else
   /usr/sbin/qm set $VMID --ipconfig0 ip=$IP,gw=$GW
 fi
+printf "___________________________________________\n\n"

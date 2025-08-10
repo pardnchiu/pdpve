@@ -20,7 +20,7 @@ function _SHOW_TIP {
 	printf "  l,  list      全部核心\n"
 	printf "  u,  update    更新套件\n"
 	printf "  c,  clean     清理舊核心\n"
-	printf "  bye           停止動作\n"
+	printf "  b,  bye       停止動作\n"
 	printf "___________________________________________\n\n"
 }
 
@@ -60,7 +60,6 @@ function _GET_RC {
 
 function _GET_LIST {
   _SHOW_HEADER
-	printf "[*] 當前運行: $current_kernel\n"
   _GET_INSTALLED
   _GET_RC
 	printf "[*] 目錄中的檔案:\n"
@@ -71,7 +70,6 @@ function _GET_LIST {
 
 function _CLEAN {
   _SHOW_HEADER
-	printf "[*] 當前運行: $current_kernel\n"
 
 	# 獲取當前核心的版本號（移除 -pve 後綴）
 	current_version=${current_kernel%-pve}
@@ -147,7 +145,7 @@ function _DO {
 			"c"|"clean")
 				_CLEAN
 				;;
-			"bye")
+			"b"|"bye")
         clear
 				exit 0
 				;;

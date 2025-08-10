@@ -3,7 +3,8 @@
 current_kernel=$(uname -r)
 current_version=${current_kernel%-pve}
 
-function _SHOW_TIP {
+function _SHOW_HEADER {
+  clear
   printf "█▀▄ █▀▄ █▀▄ █ █ █▀▀\n"
   printf "█▀  █ █ █▀  █ █ █▀▀\n"
   printf "▀   ▀▀  ▀    ▀  ▀▀▀\n"
@@ -12,7 +13,12 @@ function _SHOW_TIP {
 	printf "[*] PVE 核心\n"
 	printf "[*] 當前核心: $current_kernel\n"
 	printf "___________________________________________\n\n"
+}
+
+function _SHOW_TIP {
+  _SHOW_HEADER
 	printf "  l,  list      全部核心\n"
+	printf "  u,  update    更新套件\n"
 	printf "  c,  clean     清理舊核心\n"
 	printf "  bye           停止動作\n"
 	printf "___________________________________________\n\n"
@@ -45,7 +51,7 @@ function _GET_RC {
 	  printf "___________________________________________\n\n"
 		for kernel in $rc_kernels; do
 			if [[ "$kernel" != *"$current_version"* ]]; then
-				printf "  $kernel [配置文件殘留]\n"
+				printf "  $kernel\n"
 			fi
 		done
 	  printf "___________________________________________\n\n"
@@ -53,7 +59,7 @@ function _GET_RC {
 }
 
 function _GET_LIST {
-  clear
+  _SHOW_HEADER
 	printf "[*] 當前運行: $current_kernel\n"
   _GET_INSTALLED
   _GET_RC
@@ -64,7 +70,7 @@ function _GET_LIST {
 }
 
 function _CLEAN {
-  clear
+  _SHOW_HEADER
 	printf "[*] 當前運行: $current_kernel\n"
 
 	# 獲取當前核心的版本號（移除 -pve 後綴）
@@ -82,7 +88,7 @@ function _CLEAN {
   printf "[*] rc 狀態的核心套件:\n"
   printf "___________________________________________\n\n"
   for kernel in $rc_kernels; do
-    printf "  $kernel (配置文件殘留)\n"
+    printf "  $kernel\n"
   done
   printf "___________________________________________\n\n"
 
@@ -129,20 +135,32 @@ function _DO {
 			"l"|"list")
 				_GET_LIST
 				;;
+      "u"|"update")
+        _SHOW_HEADER
+        apt update
+        apt upgrade -y
+        apt autoremove -y
+        apt autoclean -y
+        apt clean
+        printf "\n"
+        ;;
 			"c"|"clean")
 				_CLEAN
 				;;
 			"bye")
+        clear
 				exit 0
 				;;
 			*)
-        clear
-        if [ -z "$REPLY" ]; then
-          printf "請輸入選項\n\n"
-        else
-          printf "無效的選項: $REPLY\n\n"
+        _SHOW_HEADER
+        read -p "[-] 是否關閉 [y/N]: " -r
+        if [[ $REPLY =~ ^[Yy]$ ]]; then
+          clear
+          exit 0
+        else 
+          _INIT
         fi
-				;;
+        ;;
 		esac
 		printf "按 Enter 繼續..."
 		read -r
@@ -152,12 +170,10 @@ function _DO {
 
 function _INIT {
   clear
-
 	if [[ $EUID -ne 0 ]]; then
 		printf "[!] 無 root 權限.\n"
 		exit 1
 	fi
-
   _DO
 }
 

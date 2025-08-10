@@ -1,7 +1,7 @@
 #!/bin/bash
 
 program_name="pdpve"
-app_version="v0.1.0"
+app_version="v0.1.1"
 app_path=/usr/local/sbin/$program_name
 app_module_path=/usr/local/bin/$program_name
 github="https://github.com/pardnchiu/pdpve.git"
@@ -11,26 +11,35 @@ param2=$2
 param3=$3
 param4=$4
 
-function _SHOW_TIP {
+function _SHOW_HEADER {
+  clear
   printf "█▀▄ █▀▄ █▀▄ █ █ █▀▀\n"
   printf "█▀  █ █ █▀  █ █ █▀▀\n"
   printf "▀   ▀▀  ▀    ▀  ▀▀▀\n"
   printf "By 邱敬幃 Pardn Chiu [dev@pardn.io]\n"
 	printf "___________________________________________\n\n"
+	printf "[*] PDPVE 版本: $app_version\n"
+	printf "___________________________________________\n\n"
+}
+
+function _SHOW_TIP {
+  _SHOW_HEADER
 	printf "  qm, qemu      虛擬機\n"
 	printf "  ip, findip    連接裝置\n"
 	printf "  c,  cpu       CPU\n"
 	printf "  f,  fan       FAN\n"
 	printf "  k,  kernel    PVE 核心\n"
-	printf "  u,  update    更新套件\n"
-	printf "  v,  version   顯示 $program_name 版本\n"
-	printf "  r,  remove    移除 $program_name\n"
+	printf "  s,  speedtest 網路速度\n"
+	printf "  u,  update    更新 $program_name\n"
+	printf "  rm, remove    移除 $program_name\n"
 	printf "  h,  help      顯示 $program_name 指令\n"
   printf "  bye           停止動作\n"
 	printf "___________________________________________\n\n"
 }
 
-function _INSTALL() {
+function _INSTALL {
+  _SHOW_HEADER
+
   cp -f $0 $app_path
   chmod +x $app_path
   
@@ -40,65 +49,62 @@ function _INSTALL() {
   
   printf "[*] 已安裝 $program_name 至系統\n"
   printf "[*] 當前 $program_name 版本為 $app_version\n"
-  printf "[*] 後續可以直接執行 \"$program_name\" 來使用\n"
+  printf "[*] 後續可以直接執行 \"$program_name\" 來使用\n\n"
 }
 
-function _REMOVE() {
+function _REMOVE {
+  _SHOW_HEADER
   if [ -e $app_path ]; then
-    read -p "[-] 是否從系統中移除 $program_name? [y/N] " -n 1 -r
+    read -p "[-] 是否從系統中移除 $program_name [y/N] " -n 1 -r
     printf "\n"
     if [[ $REPLY =~ ^[Yy]$ ]]; then
       rm -f $app_path
       rm -rf $app_module_path
-      printf "[*] 已成功從系統中移除 $program_name\n"
-      exit 1
+      printf "[*] 已成功從系統中移除 $program_name\n\n"
     fi
   else
-    printf "[!] 並未安裝 $program_name.\n"
+    printf "[!] 並未安裝 $program_name.\n\n"
   fi
 }
 
-function _CHECK_INSTALL() {
-  isDiff=false
+function _CHECK_INSTALL {
+  _SHOW_HEADER
 
-  # 已安裝
+  is_diff=false
+  is_uninstalled=false
   if [ -e $app_path ]; then
     # 取得已安裝的版本號
     installedVersion=$($app_path -v | awk '{printf $0}')
 
     # 版本號不相同
     if [ $app_version != $installedVersion ]; then
-        printf "\n[!] 版本號不相同 (當前: $installedVersion | 新: $app_version)\n"
+        printf "[!] 版本號不相同 (當前: $installedVersion | 新: $app_version)\n"
         printf "[*] 安裝會直接覆蓋當前版本"
-        isDiff=true
+        is_diff=true
     fi
-  # 未安裝
   else
+    is_uninstalled=true
     _INSTALL
   fi
 
-  # 版本不相同
-  if [ $isDiff == true ]; then
+  if [ $is_diff == true ]; then
     printf "\n"
-    read -p "[-] 是否更換版本至 $app_version? [y/N]" -n 1 -r
+    read -p "[-] 是否更換版本至 $app_version [y/N]" -n 1 -r
     printf "\n"
 
     if [[ $REPLY =~ ^[Yy]$ ]]; then
       _INSTALL
+    else 
+		  _INIT
     fi
+  elif [ $is_uninstalled == true ]; then
+    _INSTALL
+  else 
+		_INIT
   fi
 }
 
-function _INIT {
-  clear
-	if [[ $EUID -ne 0 ]]; then
-		printf "[!] 無 root 權限.\n"
-		exit 1
-	fi
-  _CHECK_INSTALL
-}
-
-function _CALL_MODULE() {
+function _CALL_MODULE {
   local NAME="$1"
   
   # 檢查模組是否存在
@@ -111,15 +117,7 @@ function _CALL_MODULE() {
   fi
 }
 
-function _UPDATE() {
-	apt update
-	apt upgrade -y
-	apt autoremove -y
-	apt autoclean -y
-	apt clean
-}
-
-function _UPDATE_VERSION() {
+function _UPDATE {
 	printf "[*] 下載最新資料\n"
   git clone $github /tmp/pdpve
   if [ $? -ne 0 ]; then
@@ -143,7 +141,7 @@ function _UPDATE_VERSION() {
   exit 1
 }
 
-function _DO() {
+function _DO {
 	while true; do
     _SHOW_TIP
 	  read -p "[-] 請選擇動作: " -r
@@ -154,9 +152,11 @@ function _DO() {
       _DO
       break
 			;;
-		u | update)
-			_UPDATE
-			;;
+    s | speedtest)
+      _SHOW_HEADER
+      speedtest
+      printf "\n"
+      ;;
 		qm | --qemu)
 			_CALL_MODULE "qm" "${@:2}"
       _DO
@@ -170,39 +170,56 @@ function _DO() {
 		f | fan)
 			_CALL_MODULE "fan" "${@:2}"
 			;;
-		v | version)
-      printf "$app_version\n"
-      _CHECK_INSTALL
+		u | update)
+      _UPDATE
 			;;
-		r | remove)
-			_INIT
+		rm | remove)
 			_REMOVE
 			;;
 		h | help)
 			_INIT
 			;;
     bye)
+      clear
       exit 0
       ;;
 		*)
-      printf "無效的選項: $REPLY\n\n"
+      _SHOW_HEADER
+      read -p "[-] 是否關閉 [y/N]: " -r
+      if [[ $REPLY =~ ^[Yy]$ ]]; then
+        clear
+        exit 0
+      else 
+        _INIT
+      fi
       ;;
 		esac
 		printf "按 Enter 繼續..."
 		read -r
 		clear
 	done
-	exit 1
+}
+
+function _INIT {
+  clear
+	if [[ $EUID -ne 0 ]]; then
+		printf "[!] 無 root 權限.\n"
+		exit 1
+	fi
+	_DO
 }
 
 while true; do
 	case "$1" in
 	-k | --kernel)
-	  printf "$current_kernel\n"
-    break 
+    _CALL_MODULE "kernel" "${@:2}"
+    clear
+    break;
     ;;
-	-u | --update)
-		_UPDATE 
+  -s | --speedtest)
+    _SHOW_HEADER
+    speedtest
+    break;
     ;;
 	-qm | --qemu)
 		_CALL_MODULE "qm" "${@:2}"
@@ -224,9 +241,6 @@ while true; do
 	  printf "$app_version\n"
     break
 		;;
-	-uv | --update-version)
-		_UPDATE_VERSION
-		;;
 	-r | --remove)
 		_INIT
 		_REMOVE
@@ -236,10 +250,10 @@ while true; do
 		exit 1
 		;;
 	*)
-		_INIT
-		_DO
-    break
+    _CHECK_INSTALL
 		;;
 	esac
-	shift
+  printf "按 Enter 繼續..."
+  read -r
+  clear
 done

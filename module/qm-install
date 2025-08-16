@@ -305,7 +305,8 @@ echo "[*] 建立虛擬機 $VMID"
 --memory $RAM \
 --ostype l26 \
 --agent 1 \
---net0 virtio,bridge=vmbr0
+--net0 virtio,bridge=vmbr0 \
+--serial0 socket # 解決 Debian cloud-init 初始化 kernel panic 問題
 
 if [ $? -ne 0 ]; then
   echo "[!] 虛擬機 $VMID 建立失敗"

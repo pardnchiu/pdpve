@@ -1,7 +1,7 @@
 #!/bin/bash
 
 program_name="pdpve"
-app_version="v0.1.3"
+app_version="v0.1.4"
 app_path=/usr/local/sbin/$program_name
 app_module_path=/usr/local/bin/$program_name
 github="https://github.com/pardnchiu/pdpve.git"
